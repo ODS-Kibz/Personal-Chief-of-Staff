@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { classifyCalendarEvent, dayBounds, normalizeGoogleEvents, sortCalendarItems } from "../lib/calendar-core.mjs";
+import { classifyCalendarEvent, dayBounds, normalizeGoogleEvents, prepareCalendarItems, sortCalendarItems } from "../lib/calendar-core.mjs";
 
 test("dayBounds creates Nairobi day boundaries and rejects malformed dates", () => {
   assert.deepEqual(dayBounds("2026-08-20"), {
@@ -10,10 +10,11 @@ test("dayBounds creates Nairobi day boundaries and rejects malformed dates", () 
   assert.throws(() => dayBounds("20-08-2026"), /Invalid calendar date/);
 });
 
-test("event classification recognizes focus, admin, and personal language", () => {
+test("event classification recognizes focus, admin, personal, and meeting language", () => {
   assert.equal(classifyCalendarEvent("Deep work: proposal"), "focus");
-  assert.equal(classifyCalendarEvent("Admin follow-ups"), "admin");
-  assert.equal(classifyCalendarEvent("Family dinner"), "personal");
+  assert.equal(classifyCalendarEvent("Inbox follow up"), "admin");
+  assert.equal(classifyCalendarEvent("Gym"), "personal");
+  assert.equal(classifyCalendarEvent("Doctor appointment"), "personal");
   assert.equal(classifyCalendarEvent("Client review"), "meeting");
 });
 
@@ -35,4 +36,15 @@ test("all-day events sort before timed events", () => {
     { id: "0", start: "09:00", end: "", title: "Earlier", kind: "focus" },
   ]);
   assert.deepEqual(sorted.map(item => item.id), ["1", "0", "2"]);
+});
+
+test("duplicate event copies from multiple calendars collapse into one visible item", () => {
+  const prepared = prepareCalendarItems([
+    { id: "primary:1", start: "10:00", end: "11:00", title: "Client review", context: "Primary", kind: "meeting" },
+    { id: "shared:77", start: "10:00", end: "11:00", title: "client review", context: "Shared", kind: "meeting" },
+    { id: "primary:2", start: "12:00", end: "13:00", title: "Lunch", context: "Primary", kind: "personal" },
+  ]);
+
+  assert.equal(prepared.length, 2);
+  assert.deepEqual(prepared.map(item => item.title), ["Client review", "Lunch"]);
 });
