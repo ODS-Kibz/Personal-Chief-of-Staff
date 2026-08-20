@@ -31,6 +31,7 @@ This branch contains the first working implementation of the Personal Chief of S
 - Versioned local-memory export and restore for browser/device portability
 - Authentication-independent Google Calendar fixture tests and normalized event mapping
 - Retryable calendar errors and keyboard-safe modal behavior
+- Previous-closeout handoff and blocked-session recovery surfaced in the morning loop
 
 ## Google Calendar setup required
 

@@ -41,6 +41,17 @@ function nairobiDate() {
   }).format(new Date());
 }
 
+function nairobiDateOffset(days: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + days);
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Nairobi",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(date);
+}
+
 export default function Dashboard() {
   const { data: session, status: authStatus } = useSession();
   const [loops, setLoops] = usePersistentState<OpenLoop[]>("cos.openLoops.v1", seedLoops);
@@ -125,6 +136,8 @@ export default function Dashboard() {
   const capacity = useMemo(() => calculateCapacity(calendar), [calendar]);
   const fingerprint = useMemo(() => briefFingerprint(today, loops, calendar), [calendar, loops, today]);
   const todayCloseout = closeouts.find(closeout => closeout.date === today);
+  const previousCloseout = closeouts.find(closeout => closeout.date === nairobiDateOffset(-1)) ?? closeouts.find(closeout => closeout.date < today);
+  const latestBlockedSession = sessionHistory.find(record => record.result === "blocked");
   const needsRebrief = Boolean(lastBrief?.date === today && lastBrief.fingerprint !== fingerprint);
   const totalElapsed = workSession.elapsed + (workSession.sessionStart ? now - workSession.sessionStart : 0);
   const visibleLoops = loops.filter(loop => loop.title.toLowerCase().includes(loopQuery.trim().toLowerCase()));
@@ -339,7 +352,7 @@ export default function Dashboard() {
             <div className="card-head"><div><Sparkles size={18}/><b>What I Recommend</b></div></div>
             <div className="recommend"><div className="rec-icon"><Play size={15}/></div><div><b>Clear the highest-consequence item first.</b><span>{mustMove[0]?.title ?? "No must-move item right now."}</span></div></div>
             <div className="recommend"><div className="rec-icon"><CalendarDays size={15}/></div><div><b>Prepare before the next meeting.</b><span>Protect context-recovery time instead of relying on memory.</span></div></div>
-            <div className="recommend"><div className="rec-icon"><TimerReset size={15}/></div><div><b>Keep buffer available.</b><span>Open calendar time is not the same as usable work capacity.</span></div></div>
+            <div className="recommend"><div className="rec-icon"><TimerReset size={15}/></div><div><b>{latestBlockedSession ? "Recover the latest blocker." : "Keep buffer available."}</b><span>{latestBlockedSession ? `${latestBlockedSession.task}${latestBlockedSession.interruptionNote ? ` — ${latestBlockedSession.interruptionNote}` : " needs a concrete unblock step."}` : "Open calendar time is not the same as usable work capacity."}</span></div></div>
           </section>
 
           <section className="card capacity-card">
@@ -380,6 +393,7 @@ export default function Dashboard() {
           <p className="modal-lead">{summary}</p>
           <div className="brief-section"><b>Must move</b>{mustMove.length ? <ol>{mustMove.slice(0, 3).map(loop => <li key={loop.id}>{loop.title}<span>{loop.definitionOfDone ?? "Confirm when complete"}</span></li>)}</ol> : <p>No must-move items are open.</p>}</div>
           <div className="brief-section"><b>Schedule pressure</b><p>{meetingCount ? `${meetingCount} meeting${meetingCount === 1 ? "" : "s"} leave ${formatHours(capacity.focusMinutes)} of conservative focus capacity.` : `No meetings detected; preserve ${formatHours(capacity.focusMinutes)} for focused progress.`}</p></div>
+          {previousCloseout?.note && <div className="brief-section handoff"><b>Handoff from the last closeout</b><p>{previousCloseout.note}</p></div>}
           <button className="primary action" onClick={() => setPanel(null)}>Brief acknowledged</button>
         </> : panel === "loops" ? <>
           <span className="eyebrow">Continuity register</span><h2 id="panel-title">Manage every open loop.</h2>
