@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import type { CalendarItem } from "@/lib/types";
-import { dayBounds, normalizeGoogleEvents, sortCalendarItems } from "@/lib/calendar-core.mjs";
+import { dayBounds, normalizeGoogleEvents, prepareCalendarItems } from "@/lib/calendar-core.mjs";
 
 const GOOGLE = "https://www.googleapis.com/calendar/v3";
 
@@ -25,7 +25,7 @@ export async function GET(request: Request) {
   }
   const headers = { Authorization: `Bearer ${accessToken}` };
 
-  const calendarListResponse = await fetch(`${GOOGLE}/users/me/calendarList`, { headers, cache: "no-store" });
+  const calendarListResponse = await fetch(`${GOOGLE}/users/me/calendarList?maxResults=250`, { headers, cache: "no-store" });
   if (!calendarListResponse.ok) {
     return NextResponse.json({ connected: true, items: [], error: "Unable to read calendar list." }, { status: calendarListResponse.status });
   }
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
         timeMax,
         singleEvents: "true",
         orderBy: "startTime",
-        maxResults: "50",
+        maxResults: "2500",
       });
       const response = await fetch(`${GOOGLE}/calendars/${encodeURIComponent(calendar.id)}/events?${params}`, {
         headers,
@@ -51,6 +51,7 @@ export async function GET(request: Request) {
       const payload = (await response.json()) as {
         items?: Array<{
           id: string;
+          status?: string;
           summary?: string;
           location?: string;
           start?: { dateTime?: string; date?: string };
@@ -62,6 +63,6 @@ export async function GET(request: Request) {
     })
   );
 
-  const items = sortCalendarItems(eventGroups.flat());
+  const items = prepareCalendarItems(eventGroups.flat());
   return NextResponse.json({ connected: true, items });
 }
