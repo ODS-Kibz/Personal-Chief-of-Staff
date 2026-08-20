@@ -2,33 +2,9 @@ import { NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import type { CalendarItem } from "@/lib/types";
+import { dayBounds, normalizeGoogleEvents, sortCalendarItems } from "@/lib/calendar-core.mjs";
 
 const GOOGLE = "https://www.googleapis.com/calendar/v3";
-
-function dayBounds(date: string) {
-  return {
-    timeMin: `${date}T00:00:00+03:00`,
-    timeMax: `${date}T23:59:59+03:00`,
-  };
-}
-
-function formatTime(value?: string) {
-  if (!value) return "All day";
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-    timeZone: "Africa/Nairobi",
-  }).format(new Date(value));
-}
-
-function classify(summary = ""): CalendarItem["kind"] {
-  const text = summary.toLowerCase();
-  if (text.includes("focus") || text.includes("deep work")) return "focus";
-  if (text.includes("admin") || text.includes("follow-up")) return "admin";
-  if (text.includes("date") || text.includes("family") || text.includes("personal")) return "personal";
-  return "meeting";
-}
 
 export async function GET(request: Request) {
   const session = await getServerSession(authOptions);
@@ -40,7 +16,13 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const date = searchParams.get("date") ?? new Date().toISOString().slice(0, 10);
-  const { timeMin, timeMax } = dayBounds(date);
+  let timeMin: string;
+  let timeMax: string;
+  try {
+    ({ timeMin, timeMax } = dayBounds(date));
+  } catch {
+    return NextResponse.json({ connected: true, items: [], error: "Invalid date. Use YYYY-MM-DD." }, { status: 400 });
+  }
   const headers = { Authorization: `Bearer ${accessToken}` };
 
   const calendarListResponse = await fetch(`${GOOGLE}/users/me/calendarList`, { headers, cache: "no-store" });
@@ -76,17 +58,10 @@ export async function GET(request: Request) {
         }>;
       };
 
-      return (payload.items ?? []).map((event): CalendarItem => ({
-        id: `${calendar.id}:${event.id}`,
-        start: event.start?.dateTime ? formatTime(event.start.dateTime) : "All day",
-        end: event.end?.dateTime ? formatTime(event.end.dateTime) : "",
-        title: event.summary ?? "Untitled event",
-        context: [calendar.summary, event.location].filter(Boolean).join(" · "),
-        kind: classify(event.summary),
-      }));
+      return normalizeGoogleEvents(calendar, payload.items ?? []);
     })
   );
 
-  const items = eventGroups.flat().sort((a, b) => a.start.localeCompare(b.start));
+  const items = sortCalendarItems(eventGroups.flat());
   return NextResponse.json({ connected: true, items });
 }

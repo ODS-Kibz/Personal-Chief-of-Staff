@@ -52,6 +52,7 @@ export default function Dashboard() {
   const [loopType, setLoopType] = useState<LoopType>("Task");
   const [calendar, setCalendar] = useState<CalendarItem[]>(seedCalendar);
   const [calendarState, setCalendarState] = useState<"seed" | "loading" | "live" | "error">("seed");
+  const [calendarRefresh, setCalendarRefresh] = useState(0);
   const [now, setNow] = useState(Date.now());
   const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | "session" | "settings" | null>(null);
   const [closeoutNote, setCloseoutNote] = useState("");
@@ -100,7 +101,21 @@ export default function Dashboard() {
       });
 
     return () => controller.abort();
-  }, [authStatus]);
+  }, [authStatus, calendarRefresh]);
+
+  useEffect(() => {
+    if (!panel) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && panel !== "session") setPanel(null);
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [panel]);
 
   const today = nairobiDate();
   const openLoops = prioritizeLoops(loops, today);
@@ -297,7 +312,7 @@ export default function Dashboard() {
 
         <div className="grid">
           <section className="card schedule-card">
-            <div className="card-head"><div><CalendarDays size={18}/><b>Today’s Schedule</b></div><span className={calendarState === "live" ? "live" : "quiet"}>{calendarState === "live" ? "Google Calendar" : calendarState === "loading" ? "Loading…" : calendarState === "error" ? "Calendar error" : "Preview data"}</span></div>
+            <div className="card-head"><div><CalendarDays size={18}/><b>Today’s Schedule</b></div>{calendarState === "error" ? <button onClick={() => setCalendarRefresh(value => value + 1)}>Retry</button> : <span className={calendarState === "live" ? "live" : "quiet"}>{calendarState === "live" ? "Google Calendar" : calendarState === "loading" ? "Loading…" : "Preview data"}</span>}</div>
             <div className="schedule-list">
               {calendar.length === 0 ? <p className="empty-copy">No calendar events found for today.</p> : calendar.map(item => <div className="schedule-row" key={item.id}><div className="time">{item.start}{item.end && <span>– {item.end}</span>}</div><div className={`event ${item.kind}`}><b>{item.title}</b>{item.context && <span>{item.context}</span>}</div></div>)}
             </div>
@@ -358,8 +373,8 @@ export default function Dashboard() {
           </section>
         </div>
       </main>
-      {panel && <div className="modal-backdrop" role="presentation" onMouseDown={() => setPanel(null)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="panel-title" onMouseDown={event => event.stopPropagation()}>
-        <button className="modal-close" onClick={() => setPanel(null)} aria-label="Close"><X size={18}/></button>
+      {panel && <div className="modal-backdrop" role="presentation" onMouseDown={() => { if (panel !== "session") setPanel(null); }}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="panel-title" onMouseDown={event => event.stopPropagation()}>
+        {panel !== "session" && <button className="modal-close" onClick={() => setPanel(null)} aria-label="Close"><X size={18}/></button>}
         {panel === "brief" ? <>
           <span className="eyebrow">Morning brief · {today}</span><h2 id="panel-title">Protect the day’s consequential work.</h2>
           <p className="modal-lead">{summary}</p>

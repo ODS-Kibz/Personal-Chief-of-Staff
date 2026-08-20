@@ -29,6 +29,8 @@ This branch contains the first working implementation of the Personal Chief of S
 - Overdue-first prioritization with editable due dates
 - Work-session outcome, blocker, interruption, and recovery capture
 - Versioned local-memory export and restore for browser/device portability
+- Authentication-independent Google Calendar fixture tests and normalized event mapping
+- Retryable calendar errors and keyboard-safe modal behavior
 
 ## Google Calendar setup required
 
