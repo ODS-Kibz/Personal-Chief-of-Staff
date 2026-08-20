@@ -1,28 +1,43 @@
 # Chief of Staff — Build 1 (Continuity Core)
 
-This is the first tangible implementation slice of the Personal Chief of Staff.
+This branch contains the first working implementation of the Personal Chief of Staff continuity loop.
 
-## Included now
+## Working now
 
-- Dashboard/app shell based on the agreed starting UI direction
-- Today schedule (seed data in this slice)
+- Dashboard/app shell
 - Must Move Today
-- Master Open-Loop Register in local client state
-- Quick capture with explicit loop type (Task / Promise / Dependency / Follow-up / Obligation)
+- Master Open-Loop Register
+- Open-loop persistence in browser storage
+- Quick capture with explicit loop type
 - Mark open loops complete
-- Capacity card with conservative buffer assumption
-- Chief of Staff recommendations panel
-- Work-session start / pause / resume / finish UI
-- Responsive layout
+- Work-session start / pause / resume / finish
+- Active work-session persistence across refreshes
+- Conservative capacity/buffer view
+- Google sign-in scaffold
+- Read-only Google Calendar endpoint
+- Automatic discovery of visible Google calendars
+- Today view switches from preview data to real Calendar events after Google is connected
 
-## Not connected yet
+## Google Calendar setup required
 
-- Google Calendar API
-- Persistent database
-- Voice transcription (button is present but intentionally not wired in this first slice)
-- AI reasoning/orchestration
-- Gmail
-- Google Drive intelligence
+The application code is ready, but Google OAuth credentials must be supplied locally before the live connection can work.
+
+Copy `.env.example` to `.env.local` and provide:
+
+```bash
+GOOGLE_CLIENT_ID=...
+GOOGLE_CLIENT_SECRET=...
+NEXTAUTH_SECRET=...
+NEXTAUTH_URL=http://localhost:3000
+```
+
+The Google OAuth client must allow this callback URL during local development:
+
+```text
+http://localhost:3000/api/auth/callback/google
+```
+
+The app requests only `calendar.readonly` in this build.
 
 ## Run locally
 
@@ -31,8 +46,18 @@ npm install
 npm run dev
 ```
 
-Then open http://localhost:3000.
+Then open `http://localhost:3000`.
 
-## Next implementation slice
+## Still intentionally deferred
 
-Connect Google Calendar read-only and replace seeded schedule data with real calendar events, then add persistence for the Master Open-Loop Register.
+- Server/database-backed open-loop persistence across devices
+- Voice transcription
+- AI reasoning/orchestration
+- Gmail intake
+- Google Drive intelligence
+- Meeting transcript processing
+- Finance layer
+
+## Build philosophy
+
+Build 1 proves the daily continuity loop before adding more information sources or autonomy. The system should reduce manual tracking rather than become another tracker Kenneth has to maintain.
