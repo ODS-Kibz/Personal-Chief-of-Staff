@@ -1,19 +1,7 @@
+import { calculateCapacity, minutesBetween } from "./capacity-core.mjs";
 import type { CalendarItem, OpenLoop } from "./types";
 
-export function minutesBetween(start: string, end: string) {
-  if (!/^\d{2}:\d{2}$/.test(start) || !/^\d{2}:\d{2}$/.test(end)) return 0;
-  const [startHour, startMinute] = start.split(":").map(Number);
-  const [endHour, endMinute] = end.split(":").map(Number);
-  return Math.max(0, endHour * 60 + endMinute - startHour * 60 - startMinute);
-}
-
-export function calculateCapacity(calendar: CalendarItem[]) {
-  const scheduledMinutes = calendar.reduce((total, item) => total + minutesBetween(item.start, item.end), 0);
-  const meetingMinutes = calendar.filter(item => item.kind === "meeting").reduce((total, item) => total + minutesBetween(item.start, item.end), 0);
-  const bufferMinutes = Math.min(90, Math.max(45, Math.round(scheduledMinutes * 0.2)));
-  const focusMinutes = Math.max(0, 8 * 60 - scheduledMinutes - bufferMinutes);
-  return { scheduledMinutes, meetingMinutes, bufferMinutes, focusMinutes };
-}
+export { calculateCapacity, minutesBetween };
 
 export function briefFingerprint(date: string, loops: OpenLoop[], calendar: CalendarItem[]) {
   const loopState = loops
