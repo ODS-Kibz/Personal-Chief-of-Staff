@@ -10,7 +10,7 @@ import {
 import { seedCalendar, seedLoops } from "@/lib/seed";
 import { usePersistentState } from "@/lib/usePersistentState";
 import { useVoiceCapture } from "@/lib/useVoiceCapture";
-import { briefFingerprint, calculateCapacity, formatHours } from "@/lib/briefing";
+import { briefFingerprint, calculateCapacity, formatHours, isOverdue, prioritizeLoops } from "@/lib/briefing";
 import type { BriefSnapshot, CalendarItem, DayCloseout, LoopType, OpenLoop, PriorityState, WorkSessionRecord } from "@/lib/types";
 
 const nav = [
@@ -53,10 +53,14 @@ export default function Dashboard() {
   const [calendar, setCalendar] = useState<CalendarItem[]>(seedCalendar);
   const [calendarState, setCalendarState] = useState<"seed" | "loading" | "live" | "error">("seed");
   const [now, setNow] = useState(Date.now());
-  const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | null>(null);
+  const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | "session" | null>(null);
   const [closeoutNote, setCloseoutNote] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("");
   const [loopQuery, setLoopQuery] = useState("");
+  const [pendingSession, setPendingSession] = useState<WorkSessionRecord | null>(null);
+  const [sessionOutcome, setSessionOutcome] = useState("");
+  const [interruptionNote, setInterruptionNote] = useState("");
+  const [sessionResult, setSessionResult] = useState<WorkSessionRecord["result"]>("progressed");
   const onTranscript = useCallback((text: string) => {
     setCapture(previous => [previous.trim(), text].filter(Boolean).join(" "));
     setVoiceMessage("Voice captured. Review it, then add the open loop.");
@@ -97,11 +101,11 @@ export default function Dashboard() {
     return () => controller.abort();
   }, [authStatus]);
 
-  const openLoops = loops.filter(loop => loop.status !== "done");
-  const mustMove = openLoops.filter(loop => loop.priority === "Now" || loop.priority === "Today");
+  const today = nairobiDate();
+  const openLoops = prioritizeLoops(loops, today);
+  const mustMove = openLoops.filter(loop => loop.priority === "Now" || loop.priority === "Today" || isOverdue(loop, today));
   const waiting = openLoops.filter(loop => loop.status === "waiting").length;
   const meetingCount = calendar.filter(item => item.kind === "meeting").length;
-  const today = nairobiDate();
   const capacity = useMemo(() => calculateCapacity(calendar), [calendar]);
   const fingerprint = useMemo(() => briefFingerprint(today, loops, calendar), [calendar, loops, today]);
   const todayCloseout = closeouts.find(closeout => closeout.date === today);
@@ -195,16 +199,33 @@ export default function Dashboard() {
       const elapsed = previous.elapsed + (previous.sessionStart ? Date.now() - previous.sessionStart : 0);
       if (previous.activeTask) {
         const finishedAt = Date.now();
-        setSessionHistory(history => [{
+        setPendingSession({
           id: id(),
           task: previous.activeTask as string,
           startedAt: new Date(previous.startedAt ?? finishedAt - elapsed).toISOString(),
           finishedAt: new Date(finishedAt).toISOString(),
           elapsedMs: elapsed,
-        }, ...history].slice(0, 100));
+          result: "progressed",
+        });
+        setSessionOutcome("");
+        setInterruptionNote("");
+        setSessionResult("progressed");
+        setPanel("session");
       }
       return emptySession;
     });
+  }
+
+  function saveSessionReview() {
+    if (!pendingSession) return;
+    setSessionHistory(history => [{
+      ...pendingSession,
+      result: sessionResult,
+      outcome: sessionOutcome.trim(),
+      interruptionNote: interruptionNote.trim(),
+    }, ...history].slice(0, 100));
+    setPendingSession(null);
+    setPanel(null);
   }
 
   return (
@@ -248,7 +269,7 @@ export default function Dashboard() {
             <div className="card-head"><div><CircleDot size={18}/><b>Must Move Today</b><span className="badge">{mustMove.length}</span></div></div>
             <div className="loop-list">{mustMove.map(loop => <div className="loop-row" key={loop.id}>
               <button className="check" onClick={() => toggleDone(loop.id)} aria-label={`Mark ${loop.title} done`}><span/></button>
-              <div className="loop-copy"><b>{loop.title}</b><span>{loop.type}{loop.dueLabel ? ` · ${loop.dueLabel}` : ""}</span></div>
+              <div className="loop-copy"><b>{loop.title}</b><span className={isOverdue(loop, today) ? "overdue" : ""}>{loop.type}{isOverdue(loop, today) ? " · Overdue" : loop.dueDate ? ` · Due ${loop.dueDate}` : loop.dueLabel ? ` · ${loop.dueLabel}` : ""}</span></div>
               <button className="start-small" onClick={() => startSession(loop.title)}><Play size={13}/> Start</button>
             </div>)}</div>
           </section>
@@ -288,7 +309,7 @@ export default function Dashboard() {
           <section className="card session-card">
             <div className="card-head"><div><Clock3 size={18}/><b>Active Work Session</b></div><span className={workSession.activeTask ? "live" : "quiet"}>{workSession.activeTask ? "Tracking" : "Not tracking"}</span></div>
             {!workSession.activeTask
-              ? <div className="session-empty"><p>Start from a Must Move item or enter a session manually.</p><button className="secondary" onClick={() => startSession("Manual work session")}><Play size={15}/> Start work session</button>{sessionHistory[0] && <p className="recent-session">Last: {sessionHistory[0].task} · {Math.max(1, Math.round(sessionHistory[0].elapsedMs / 60000))} min</p>}</div>
+              ? <div className="session-empty"><p>Start from a Must Move item or enter a session manually.</p><button className="secondary" onClick={() => startSession("Manual work session")}><Play size={15}/> Start work session</button>{sessionHistory[0] && <p className="recent-session">Last: {sessionHistory[0].task} · {Math.max(1, Math.round(sessionHistory[0].elapsedMs / 60000))} min · {sessionHistory[0].result}</p>}</div>
               : <div className="session-live"><b>{workSession.activeTask}</b><span>{workSession.sessionStart ? "Running" : "Paused"} · {Math.floor(totalElapsed / 60000)} min logged</span><div className="session-actions">{workSession.sessionStart ? <button onClick={pauseSession}><Pause size={15}/> Pause</button> : <button onClick={resumeSession}><Play size={15}/> Resume</button>}<button onClick={stopSession}><Square size={15}/> Finish</button></div></div>}
           </section>
 
@@ -315,7 +336,15 @@ export default function Dashboard() {
             <div><input className="loop-title-input" value={loop.title} onChange={event => updateLoop(loop.id, { title: event.target.value })}/><span>{loop.type} · {loop.definitionOfDone ?? "Confirm when complete"}</span></div>
             <select value={loop.priority} onChange={event => updateLoop(loop.id, { priority: event.target.value as PriorityState })}><option>Now</option><option>Today</option><option>Scheduled</option><option>Waiting</option><option>Dormant</option></select>
             <select value={loop.status} onChange={event => updateLoop(loop.id, { status: event.target.value as OpenLoop["status"] })}><option value="open">Open</option><option value="waiting">Waiting</option><option value="done">Done</option></select>
+            <label className="due-field">Due<input type="date" value={loop.dueDate ?? ""} onChange={event => updateLoop(loop.id, { dueDate: event.target.value || undefined })}/></label>
           </article>) : <p className="empty-copy">No loops match this search.</p>}</div>
+        </> : panel === "session" ? <>
+          <span className="eyebrow">Work-session review</span><h2 id="panel-title">Capture the outcome before switching context.</h2>
+          <p className="modal-lead">{pendingSession?.task} · {Math.max(1, Math.round((pendingSession?.elapsedMs ?? 0) / 60000))} minutes</p>
+          <label className="note-label">Result<select value={sessionResult} onChange={event => setSessionResult(event.target.value as WorkSessionRecord["result"])}><option value="completed">Completed</option><option value="progressed">Progressed</option><option value="blocked">Blocked</option></select></label>
+          <label className="note-label">What changed?<textarea value={sessionOutcome} onChange={event => setSessionOutcome(event.target.value)} placeholder="Decision made, deliverable moved, or next concrete step…"/></label>
+          <label className="note-label">Interruption or recovery note<textarea value={interruptionNote} onChange={event => setInterruptionNote(event.target.value)} placeholder="Optional: what interrupted you, and where should you resume?"/></label>
+          <button className="primary action" onClick={saveSessionReview}>Save session outcome</button>
         </> : <>
           <span className="eyebrow">Daily handoff · {today}</span><h2 id="panel-title">Close today without losing tomorrow.</h2>
           <div className="closeout-metrics"><div><strong>{loops.filter(loop => loop.status === "done").length}</strong><span>completed</span></div><div><strong>{openLoops.length}</strong><span>carry forward</span></div><div><strong>{waiting}</strong><span>waiting</span></div></div>

@@ -44,4 +44,7 @@ export type WorkSessionRecord = {
   startedAt: string;
   finishedAt: string;
   elapsedMs: number;
+  outcome?: string;
+  interruptionNote?: string;
+  result: "completed" | "progressed" | "blocked";
 };

@@ -26,6 +26,8 @@ This branch contains the first working implementation of the Personal Chief of S
 - Persistent work-session history with bounded local retention
 - CI type checking before production builds
 - Patched Next.js 15.5 security baseline
+- Overdue-first prioritization with editable due dates
+- Work-session outcome, blocker, interruption, and recovery capture
 
 ## Google Calendar setup required
 
