@@ -14,4 +14,6 @@ export function dayBounds(date: string): { timeMin: string; timeMax: string };
 export function formatCalendarTime(value?: string): string;
 export function classifyCalendarEvent(summary?: string): CalendarItem["kind"];
 export function normalizeGoogleEvents(calendar: GoogleCalendar, events?: GoogleEvent[]): CalendarItem[];
+export function dedupeCalendarItems(items: CalendarItem[]): CalendarItem[];
 export function sortCalendarItems(items: CalendarItem[]): CalendarItem[];
+export function prepareCalendarItems(items: CalendarItem[]): CalendarItem[];
