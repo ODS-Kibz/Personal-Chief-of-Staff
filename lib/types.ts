@@ -23,3 +23,17 @@ export type CalendarItem = {
   context?: string;
   kind: "focus" | "meeting" | "admin" | "personal";
 };
+
+export type DayCloseout = {
+  date: string;
+  completedLoopIds: string[];
+  carryForwardLoopIds: string[];
+  note: string;
+  closedAt: string;
+};
+
+export type BriefSnapshot = {
+  date: string;
+  fingerprint: string;
+  acknowledgedAt: string;
+};

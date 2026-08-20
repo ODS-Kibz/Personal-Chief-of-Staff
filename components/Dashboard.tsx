@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { signIn, signOut, useSession } from "next-auth/react";
 import {
   Bell, CalendarDays, CheckCircle2, CircleDot, Clock3, Home, Inbox,
   LayoutDashboard, ListTodo, LogIn, LogOut, Mic, Pause, Play, Plus, RotateCcw,
-  Send, Settings, Square, Sparkles, TimerReset
+  Send, Settings, Square, Sparkles, TimerReset, X
 } from "lucide-react";
 import { seedCalendar, seedLoops } from "@/lib/seed";
 import { usePersistentState } from "@/lib/usePersistentState";
-import type { CalendarItem, LoopType, OpenLoop } from "@/lib/types";
+import { useVoiceCapture } from "@/lib/useVoiceCapture";
+import { briefFingerprint, calculateCapacity, formatHours } from "@/lib/briefing";
+import type { BriefSnapshot, CalendarItem, DayCloseout, LoopType, OpenLoop } from "@/lib/types";
 
 const nav = [
   ["Home", Home], ["Today", CalendarDays], ["Open Loops", ListTodo],
@@ -42,11 +44,21 @@ export default function Dashboard() {
   const { data: session, status: authStatus } = useSession();
   const [loops, setLoops] = usePersistentState<OpenLoop[]>("cos.openLoops.v1", seedLoops);
   const [workSession, setWorkSession] = usePersistentState<SessionState>("cos.workSession.v1", emptySession);
+  const [closeouts, setCloseouts] = usePersistentState<DayCloseout[]>("cos.closeouts.v1", []);
+  const [lastBrief, setLastBrief] = usePersistentState<BriefSnapshot | null>("cos.lastBrief.v1", null);
   const [capture, setCapture] = useState("");
   const [loopType, setLoopType] = useState<LoopType>("Task");
   const [calendar, setCalendar] = useState<CalendarItem[]>(seedCalendar);
   const [calendarState, setCalendarState] = useState<"seed" | "loading" | "live" | "error">("seed");
   const [now, setNow] = useState(Date.now());
+  const [panel, setPanel] = useState<"brief" | "closeout" | null>(null);
+  const [closeoutNote, setCloseoutNote] = useState("");
+  const [voiceMessage, setVoiceMessage] = useState("");
+  const onTranscript = useCallback((text: string) => {
+    setCapture(previous => [previous.trim(), text].filter(Boolean).join(" "));
+    setVoiceMessage("Voice captured. Review it, then add the open loop.");
+  }, []);
+  const voice = useVoiceCapture(onTranscript);
 
   useEffect(() => {
     if (!workSession.sessionStart) return;
@@ -86,12 +98,41 @@ export default function Dashboard() {
   const mustMove = openLoops.filter(loop => loop.priority === "Now" || loop.priority === "Today");
   const waiting = openLoops.filter(loop => loop.status === "waiting").length;
   const meetingCount = calendar.filter(item => item.kind === "meeting").length;
+  const today = nairobiDate();
+  const capacity = useMemo(() => calculateCapacity(calendar), [calendar]);
+  const fingerprint = useMemo(() => briefFingerprint(today, loops, calendar), [calendar, loops, today]);
+  const todayCloseout = closeouts.find(closeout => closeout.date === today);
+  const needsRebrief = Boolean(lastBrief?.date === today && lastBrief.fingerprint !== fingerprint);
   const totalElapsed = workSession.elapsed + (workSession.sessionStart ? now - workSession.sessionStart : 0);
 
   const summary = useMemo(
-    () => `${mustMove.length} must-move item${mustMove.length === 1 ? "" : "s"}. ${meetingCount} meeting${meetingCount === 1 ? "" : "s"}. ~4.5 focused work hours available.`,
-    [meetingCount, mustMove.length]
+    () => `${mustMove.length} must-move item${mustMove.length === 1 ? "" : "s"}. ${meetingCount} meeting${meetingCount === 1 ? "" : "s"}. ${formatHours(capacity.focusMinutes)} focused work capacity.`,
+    [capacity.focusMinutes, meetingCount, mustMove.length]
   );
+
+  function acknowledgeBrief() {
+    setLastBrief({ date: today, fingerprint, acknowledgedAt: new Date().toISOString() });
+    setPanel("brief");
+  }
+
+  function completeCloseout() {
+    const closeout: DayCloseout = {
+      date: today,
+      completedLoopIds: loops.filter(loop => loop.status === "done").map(loop => loop.id),
+      carryForwardLoopIds: openLoops.map(loop => loop.id),
+      note: closeoutNote.trim(),
+      closedAt: new Date().toISOString(),
+    };
+    setCloseouts(previous => [closeout, ...previous.filter(item => item.date !== today)]);
+    setCloseoutNote("");
+    setPanel(null);
+  }
+
+  function toggleVoice() {
+    setVoiceMessage("");
+    if (voice.listening) return voice.stop();
+    if (!voice.start()) setVoiceMessage("Voice capture is not supported by this browser. You can keep typing instead.");
+  }
 
   function addLoop() {
     const title = capture.trim();
@@ -170,9 +211,11 @@ export default function Dashboard() {
           </div>
         </header>
 
+        {needsRebrief && <section className="change-note"><RotateCcw size={18}/><div><b>Your day materially changed.</b><span>Calendar or priority state changed since the last brief.</span></div><button onClick={acknowledgeBrief}>Rebrief me</button></section>}
+
         <section className="hero-note">
           <Sparkles size={22}/><div><b>Here’s what matters today.</b><span>{summary}</span></div>
-          <button>View full brief</button>
+          <button onClick={acknowledgeBrief}>{lastBrief?.date === today ? "Review brief" : "Start morning brief"}</button>
         </section>
 
         <div className="grid">
@@ -209,7 +252,7 @@ export default function Dashboard() {
 
           <section className="card capacity-card">
             <div className="card-head"><div><Clock3 size={18}/><b>Capacity Today</b></div></div>
-            <div className="capacity"><div className="ring"><div><strong>~4.5h</strong><span>usable focus</span></div></div><div className="capacity-list"><span>Meetings <b>{meetingCount}.0h</b></span><span>Focus plan <b>4.5h</b></span><span>Buffer <b>1.5h</b></span></div></div>
+            <div className="capacity"><div className="ring"><div><strong>{formatHours(capacity.focusMinutes)}</strong><span>usable focus</span></div></div><div className="capacity-list"><span>Meetings <b>{formatHours(capacity.meetingMinutes)}</b></span><span>Scheduled <b>{formatHours(capacity.scheduledMinutes)}</b></span><span>Buffer <b>{formatHours(capacity.bufferMinutes)}</b></span></div></div>
             <p className="status-line"><CheckCircle2 size={15}/> Plan includes buffer for interruptions and transitions.</p>
           </section>
 
@@ -218,10 +261,10 @@ export default function Dashboard() {
             <div className="capture-row">
               <select value={loopType} onChange={event => setLoopType(event.target.value as LoopType)}><option>Task</option><option>Promise</option><option>Dependency</option><option>Follow-up</option><option>Obligation</option></select>
               <input value={capture} onChange={event => setCapture(event.target.value)} onKeyDown={event => { if (event.key === "Enter") addLoop(); }} placeholder="Tell me what needs to be remembered…"/>
-              <button className="icon-btn" title="Voice capture is the next input slice"><Mic size={17}/></button>
+              <button className={`icon-btn ${voice.listening ? "recording" : ""}`} onClick={toggleVoice} title={voice.listening ? "Stop listening" : "Capture by voice"} aria-label={voice.listening ? "Stop voice capture" : "Start voice capture"}>{voice.listening ? <Square size={15}/> : <Mic size={17}/>}</button>
               <button className="send-btn" onClick={addLoop}><Send size={17}/></button>
             </div>
-            <p>Training mode: explicitly identify the type; the CoS will learn recurring patterns later. Open loops now survive refreshes on this browser.</p>
+            <p>{voiceMessage || (voice.listening ? "Listening… speak the item you want remembered." : "Identify the type, then type or dictate the item. Open loops survive refreshes on this browser.")}</p>
           </section>
 
           <section className="card session-card">
@@ -230,8 +273,29 @@ export default function Dashboard() {
               ? <div className="session-empty"><p>Start from a Must Move item or enter a session manually.</p><button className="secondary" onClick={() => startSession("Manual work session")}><Play size={15}/> Start work session</button></div>
               : <div className="session-live"><b>{workSession.activeTask}</b><span>{workSession.sessionStart ? "Running" : "Paused"} · {Math.floor(totalElapsed / 60000)} min logged</span><div className="session-actions">{workSession.sessionStart ? <button onClick={pauseSession}><Pause size={15}/> Pause</button> : <button onClick={resumeSession}><Play size={15}/> Resume</button>}<button onClick={stopSession}><Square size={15}/> Finish</button></div></div>}
           </section>
+
+          <section className="card closeout-card">
+            <div className="card-head"><div><CheckCircle2 size={18}/><b>End-of-Day Closeout</b></div><span className={todayCloseout ? "live" : "quiet"}>{todayCloseout ? "Closed" : "Open"}</span></div>
+            <p>{todayCloseout ? `${todayCloseout.completedLoopIds.length} completed · ${todayCloseout.carryForwardLoopIds.length} carried forward.` : "Reconcile what moved, preserve what remains, and leave tomorrow a clean handoff."}</p>
+            <button className="secondary" onClick={() => setPanel("closeout")}>{todayCloseout ? "Review closeout" : "Close the day"}</button>
+          </section>
         </div>
       </main>
+      {panel && <div className="modal-backdrop" role="presentation" onMouseDown={() => setPanel(null)}><section className="modal" role="dialog" aria-modal="true" aria-labelledby="panel-title" onMouseDown={event => event.stopPropagation()}>
+        <button className="modal-close" onClick={() => setPanel(null)} aria-label="Close"><X size={18}/></button>
+        {panel === "brief" ? <>
+          <span className="eyebrow">Morning brief · {today}</span><h2 id="panel-title">Protect the day’s consequential work.</h2>
+          <p className="modal-lead">{summary}</p>
+          <div className="brief-section"><b>Must move</b>{mustMove.length ? <ol>{mustMove.slice(0, 3).map(loop => <li key={loop.id}>{loop.title}<span>{loop.definitionOfDone ?? "Confirm when complete"}</span></li>)}</ol> : <p>No must-move items are open.</p>}</div>
+          <div className="brief-section"><b>Schedule pressure</b><p>{meetingCount ? `${meetingCount} meeting${meetingCount === 1 ? "" : "s"} leave ${formatHours(capacity.focusMinutes)} of conservative focus capacity.` : `No meetings detected; preserve ${formatHours(capacity.focusMinutes)} for focused progress.`}</p></div>
+          <button className="primary action" onClick={() => setPanel(null)}>Brief acknowledged</button>
+        </> : <>
+          <span className="eyebrow">Daily handoff · {today}</span><h2 id="panel-title">Close today without losing tomorrow.</h2>
+          <div className="closeout-metrics"><div><strong>{loops.filter(loop => loop.status === "done").length}</strong><span>completed</span></div><div><strong>{openLoops.length}</strong><span>carry forward</span></div><div><strong>{waiting}</strong><span>waiting</span></div></div>
+          <label className="note-label">What should tomorrow remember?<textarea value={closeoutNote} onChange={event => setCloseoutNote(event.target.value)} placeholder={todayCloseout?.note || "Decision, risk, context, or first move for tomorrow…"}/></label>
+          <button className="primary action" onClick={completeCloseout}>{todayCloseout ? "Update closeout" : "Complete closeout"}</button>
+        </>}
+      </section></div>}
     </div>
   );
 }

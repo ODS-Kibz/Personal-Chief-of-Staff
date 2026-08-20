@@ -17,6 +17,11 @@ This branch contains the first working implementation of the Personal Chief of S
 - Read-only Google Calendar endpoint
 - Automatic discovery of visible Google calendars
 - Today view switches from preview data to real Calendar events after Google is connected
+- Automatic Google access-token refresh for long-running sessions
+- Browser voice dictation wired into Quick Capture (where Web Speech is supported)
+- Morning brief with priorities, schedule pressure, and conservative capacity
+- Material-change detection and rebrief prompt after the brief is acknowledged
+- Persistent end-of-day closeout and next-day handoff note
 
 ## Google Calendar setup required
 
@@ -51,7 +56,7 @@ Then open `http://localhost:3000`.
 ## Still intentionally deferred
 
 - Server/database-backed open-loop persistence across devices
-- Voice transcription
+- Cross-browser/server voice transcription (Build 1 uses the browser speech API)
 - AI reasoning/orchestration
 - Gmail intake
 - Google Drive intelligence
