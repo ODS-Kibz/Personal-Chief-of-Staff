@@ -28,6 +28,7 @@ This branch contains the first working implementation of the Personal Chief of S
 - Patched Next.js 15.5 security baseline
 - Overdue-first prioritization with editable due dates
 - Work-session outcome, blocker, interruption, and recovery capture
+- Versioned local-memory export and restore for browser/device portability
 
 ## Google Calendar setup required
 

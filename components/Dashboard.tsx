@@ -53,7 +53,7 @@ export default function Dashboard() {
   const [calendar, setCalendar] = useState<CalendarItem[]>(seedCalendar);
   const [calendarState, setCalendarState] = useState<"seed" | "loading" | "live" | "error">("seed");
   const [now, setNow] = useState(Date.now());
-  const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | "session" | null>(null);
+  const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | "session" | "settings" | null>(null);
   const [closeoutNote, setCloseoutNote] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("");
   const [loopQuery, setLoopQuery] = useState("");
@@ -61,6 +61,7 @@ export default function Dashboard() {
   const [sessionOutcome, setSessionOutcome] = useState("");
   const [interruptionNote, setInterruptionNote] = useState("");
   const [sessionResult, setSessionResult] = useState<WorkSessionRecord["result"]>("progressed");
+  const [settingsMessage, setSettingsMessage] = useState("");
   const onTranscript = useCallback((text: string) => {
     setCapture(previous => [previous.trim(), text].filter(Boolean).join(" "));
     setVoiceMessage("Voice captured. Review it, then add the open loop.");
@@ -228,13 +229,50 @@ export default function Dashboard() {
     setPanel(null);
   }
 
+  function exportMemory() {
+    const backup = {
+      format: "personal-chief-of-staff-backup",
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      data: { loops, workSession, sessionHistory, closeouts, lastBrief },
+    };
+    const url = URL.createObjectURL(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `chief-of-staff-backup-${today}.json`;
+    link.click();
+    URL.revokeObjectURL(url);
+    setSettingsMessage("Backup exported. Store it somewhere you control.");
+  }
+
+  async function importMemory(file?: File) {
+    if (!file) return;
+    try {
+      const backup = JSON.parse(await file.text()) as {
+        format?: string;
+        version?: number;
+        data?: { loops?: unknown; workSession?: unknown; sessionHistory?: unknown; closeouts?: unknown; lastBrief?: unknown };
+      };
+      if (backup.format !== "personal-chief-of-staff-backup" || backup.version !== 1 || !backup.data) throw new Error("Unsupported backup");
+      if (!Array.isArray(backup.data.loops) || !Array.isArray(backup.data.sessionHistory) || !Array.isArray(backup.data.closeouts)) throw new Error("Incomplete backup");
+      setLoops(backup.data.loops as OpenLoop[]);
+      setSessionHistory(backup.data.sessionHistory as WorkSessionRecord[]);
+      setCloseouts(backup.data.closeouts as DayCloseout[]);
+      if (backup.data.workSession && typeof backup.data.workSession === "object") setWorkSession(backup.data.workSession as SessionState);
+      setLastBrief((backup.data.lastBrief as BriefSnapshot | null | undefined) ?? null);
+      setSettingsMessage("Backup restored successfully.");
+    } catch {
+      setSettingsMessage("This file is not a valid Chief of Staff backup. Nothing was changed.");
+    }
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand"><div className="brandmark"><Sparkles size={18}/></div><div><b>Chief of Staff</b><span>for Kenneth</span></div></div>
         <nav>{nav.map(([label, Icon], index) => <button key={label} className={index === 0 ? "nav-item active" : "nav-item"}><Icon size={18}/><span>{label}</span></button>)}</nav>
         <div className="sidebar-bottom">
-          <button className="nav-item"><Settings size={18}/><span>Settings</span></button>
+          <button className="nav-item" onClick={() => { setSettingsMessage(""); setPanel("settings"); }}><Settings size={18}/><span>Settings</span></button>
           <div className="profile"><div className="avatar">K</div><span>{session?.user?.name ?? "Kenneth"}</span></div>
         </div>
       </aside>
@@ -345,6 +383,15 @@ export default function Dashboard() {
           <label className="note-label">What changed?<textarea value={sessionOutcome} onChange={event => setSessionOutcome(event.target.value)} placeholder="Decision made, deliverable moved, or next concrete step…"/></label>
           <label className="note-label">Interruption or recovery note<textarea value={interruptionNote} onChange={event => setInterruptionNote(event.target.value)} placeholder="Optional: what interrupted you, and where should you resume?"/></label>
           <button className="primary action" onClick={saveSessionReview}>Save session outcome</button>
+        </> : panel === "settings" ? <>
+          <span className="eyebrow">Local data controls</span><h2 id="panel-title">Keep your Chief of Staff memory portable.</h2>
+          <p className="modal-lead">Build 1 stores operational memory in this browser. Export a backup before clearing browser data or moving devices.</p>
+          <div className="settings-actions">
+            <div><b>Export memory</b><span>Downloads open loops, work sessions, briefs, and closeouts as readable JSON.</span><button className="secondary" onClick={exportMemory}>Download backup</button></div>
+            <div><b>Restore memory</b><span>Imports a versioned Chief of Staff backup and replaces the matching local records.</span><label className="secondary file-button">Choose backup<input type="file" accept="application/json,.json" onChange={event => { void importMemory(event.target.files?.[0]); event.currentTarget.value = ""; }}/></label></div>
+          </div>
+          {settingsMessage && <p className="settings-message" role="status">{settingsMessage}</p>}
+          <p className="privacy-note">Backups can contain sensitive commitments and notes. Keep them in private storage.</p>
         </> : <>
           <span className="eyebrow">Daily handoff · {today}</span><h2 id="panel-title">Close today without losing tomorrow.</h2>
           <div className="closeout-metrics"><div><strong>{loops.filter(loop => loop.status === "done").length}</strong><span>completed</span></div><div><strong>{openLoops.length}</strong><span>carry forward</span></div><div><strong>{waiting}</strong><span>waiting</span></div></div>
