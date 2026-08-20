@@ -11,7 +11,7 @@ import { seedCalendar, seedLoops } from "@/lib/seed";
 import { usePersistentState } from "@/lib/usePersistentState";
 import { useVoiceCapture } from "@/lib/useVoiceCapture";
 import { briefFingerprint, calculateCapacity, formatHours } from "@/lib/briefing";
-import type { BriefSnapshot, CalendarItem, DayCloseout, LoopType, OpenLoop } from "@/lib/types";
+import type { BriefSnapshot, CalendarItem, DayCloseout, LoopType, OpenLoop, PriorityState, WorkSessionRecord } from "@/lib/types";
 
 const nav = [
   ["Home", Home], ["Today", CalendarDays], ["Open Loops", ListTodo],
@@ -23,6 +23,7 @@ type SessionState = {
   activeTask: string | null;
   sessionStart: number | null;
   elapsed: number;
+  startedAt?: number | null;
 };
 
 const emptySession: SessionState = { activeTask: null, sessionStart: null, elapsed: 0 };
@@ -46,14 +47,16 @@ export default function Dashboard() {
   const [workSession, setWorkSession] = usePersistentState<SessionState>("cos.workSession.v1", emptySession);
   const [closeouts, setCloseouts] = usePersistentState<DayCloseout[]>("cos.closeouts.v1", []);
   const [lastBrief, setLastBrief] = usePersistentState<BriefSnapshot | null>("cos.lastBrief.v1", null);
+  const [sessionHistory, setSessionHistory] = usePersistentState<WorkSessionRecord[]>("cos.workSessions.v1", []);
   const [capture, setCapture] = useState("");
   const [loopType, setLoopType] = useState<LoopType>("Task");
   const [calendar, setCalendar] = useState<CalendarItem[]>(seedCalendar);
   const [calendarState, setCalendarState] = useState<"seed" | "loading" | "live" | "error">("seed");
   const [now, setNow] = useState(Date.now());
-  const [panel, setPanel] = useState<"brief" | "closeout" | null>(null);
+  const [panel, setPanel] = useState<"brief" | "closeout" | "loops" | null>(null);
   const [closeoutNote, setCloseoutNote] = useState("");
   const [voiceMessage, setVoiceMessage] = useState("");
+  const [loopQuery, setLoopQuery] = useState("");
   const onTranscript = useCallback((text: string) => {
     setCapture(previous => [previous.trim(), text].filter(Boolean).join(" "));
     setVoiceMessage("Voice captured. Review it, then add the open loop.");
@@ -104,6 +107,7 @@ export default function Dashboard() {
   const todayCloseout = closeouts.find(closeout => closeout.date === today);
   const needsRebrief = Boolean(lastBrief?.date === today && lastBrief.fingerprint !== fingerprint);
   const totalElapsed = workSession.elapsed + (workSession.sessionStart ? now - workSession.sessionStart : 0);
+  const visibleLoops = loops.filter(loop => loop.title.toLowerCase().includes(loopQuery.trim().toLowerCase()));
 
   const summary = useMemo(
     () => `${mustMove.length} must-move item${mustMove.length === 1 ? "" : "s"}. ${meetingCount} meeting${meetingCount === 1 ? "" : "s"}. ${formatHours(capacity.focusMinutes)} focused work capacity.`,
@@ -157,9 +161,14 @@ export default function Dashboard() {
     ));
   }
 
+  function updateLoop(loopId: string, patch: Partial<OpenLoop>) {
+    setLoops(previous => previous.map(loop => loop.id === loopId ? { ...loop, ...patch } : loop));
+  }
+
   function startSession(title: string) {
-    setNow(Date.now());
-    setWorkSession({ activeTask: title, sessionStart: Date.now(), elapsed: 0 });
+    const startedAt = Date.now();
+    setNow(startedAt);
+    setWorkSession({ activeTask: title, sessionStart: startedAt, startedAt, elapsed: 0 });
   }
 
   function pauseSession() {
@@ -184,7 +193,16 @@ export default function Dashboard() {
   function stopSession() {
     setWorkSession(previous => {
       const elapsed = previous.elapsed + (previous.sessionStart ? Date.now() - previous.sessionStart : 0);
-      console.info("Work session completed", { task: previous.activeTask, elapsedMs: elapsed });
+      if (previous.activeTask) {
+        const finishedAt = Date.now();
+        setSessionHistory(history => [{
+          id: id(),
+          task: previous.activeTask as string,
+          startedAt: new Date(previous.startedAt ?? finishedAt - elapsed).toISOString(),
+          finishedAt: new Date(finishedAt).toISOString(),
+          elapsedMs: elapsed,
+        }, ...history].slice(0, 100));
+      }
       return emptySession;
     });
   }
@@ -236,7 +254,7 @@ export default function Dashboard() {
           </section>
 
           <section className="card side-card">
-            <div className="card-head"><div><ListTodo size={18}/><b>Open Loops</b></div></div>
+            <div className="card-head"><div><ListTodo size={18}/><b>Open Loops</b></div><button onClick={() => setPanel("loops")}>Manage</button></div>
             <div className="metric"><span>Must move</span><b>{mustMove.length}</b></div>
             <div className="metric"><span>Waiting on others</span><b>{waiting}</b></div>
             <div className="metric"><span>Total open</span><b>{openLoops.length}</b></div>
@@ -270,7 +288,7 @@ export default function Dashboard() {
           <section className="card session-card">
             <div className="card-head"><div><Clock3 size={18}/><b>Active Work Session</b></div><span className={workSession.activeTask ? "live" : "quiet"}>{workSession.activeTask ? "Tracking" : "Not tracking"}</span></div>
             {!workSession.activeTask
-              ? <div className="session-empty"><p>Start from a Must Move item or enter a session manually.</p><button className="secondary" onClick={() => startSession("Manual work session")}><Play size={15}/> Start work session</button></div>
+              ? <div className="session-empty"><p>Start from a Must Move item or enter a session manually.</p><button className="secondary" onClick={() => startSession("Manual work session")}><Play size={15}/> Start work session</button>{sessionHistory[0] && <p className="recent-session">Last: {sessionHistory[0].task} · {Math.max(1, Math.round(sessionHistory[0].elapsedMs / 60000))} min</p>}</div>
               : <div className="session-live"><b>{workSession.activeTask}</b><span>{workSession.sessionStart ? "Running" : "Paused"} · {Math.floor(totalElapsed / 60000)} min logged</span><div className="session-actions">{workSession.sessionStart ? <button onClick={pauseSession}><Pause size={15}/> Pause</button> : <button onClick={resumeSession}><Play size={15}/> Resume</button>}<button onClick={stopSession}><Square size={15}/> Finish</button></div></div>}
           </section>
 
@@ -289,6 +307,15 @@ export default function Dashboard() {
           <div className="brief-section"><b>Must move</b>{mustMove.length ? <ol>{mustMove.slice(0, 3).map(loop => <li key={loop.id}>{loop.title}<span>{loop.definitionOfDone ?? "Confirm when complete"}</span></li>)}</ol> : <p>No must-move items are open.</p>}</div>
           <div className="brief-section"><b>Schedule pressure</b><p>{meetingCount ? `${meetingCount} meeting${meetingCount === 1 ? "" : "s"} leave ${formatHours(capacity.focusMinutes)} of conservative focus capacity.` : `No meetings detected; preserve ${formatHours(capacity.focusMinutes)} for focused progress.`}</p></div>
           <button className="primary action" onClick={() => setPanel(null)}>Brief acknowledged</button>
+        </> : panel === "loops" ? <>
+          <span className="eyebrow">Continuity register</span><h2 id="panel-title">Manage every open loop.</h2>
+          <input className="loop-search" value={loopQuery} onChange={event => setLoopQuery(event.target.value)} placeholder="Search open loops…" autoFocus/>
+          <div className="manage-loops">{visibleLoops.length ? visibleLoops.map(loop => <article className={`manage-loop ${loop.status === "done" ? "done" : ""}`} key={loop.id}>
+            <button className="check" onClick={() => toggleDone(loop.id)} aria-label={loop.status === "done" ? `Reopen ${loop.title}` : `Complete ${loop.title}`}/>
+            <div><input className="loop-title-input" value={loop.title} onChange={event => updateLoop(loop.id, { title: event.target.value })}/><span>{loop.type} · {loop.definitionOfDone ?? "Confirm when complete"}</span></div>
+            <select value={loop.priority} onChange={event => updateLoop(loop.id, { priority: event.target.value as PriorityState })}><option>Now</option><option>Today</option><option>Scheduled</option><option>Waiting</option><option>Dormant</option></select>
+            <select value={loop.status} onChange={event => updateLoop(loop.id, { status: event.target.value as OpenLoop["status"] })}><option value="open">Open</option><option value="waiting">Waiting</option><option value="done">Done</option></select>
+          </article>) : <p className="empty-copy">No loops match this search.</p>}</div>
         </> : <>
           <span className="eyebrow">Daily handoff · {today}</span><h2 id="panel-title">Close today without losing tomorrow.</h2>
           <div className="closeout-metrics"><div><strong>{loops.filter(loop => loop.status === "done").length}</strong><span>completed</span></div><div><strong>{openLoops.length}</strong><span>carry forward</span></div><div><strong>{waiting}</strong><span>waiting</span></div></div>

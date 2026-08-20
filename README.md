@@ -22,6 +22,10 @@ This branch contains the first working implementation of the Personal Chief of S
 - Morning brief with priorities, schedule pressure, and conservative capacity
 - Material-change detection and rebrief prompt after the brief is acknowledged
 - Persistent end-of-day closeout and next-day handoff note
+- Searchable open-loop register with inline editing, priority changes, waiting states, completion, and reopening
+- Persistent work-session history with bounded local retention
+- CI type checking before production builds
+- Patched Next.js 15.5 security baseline
 
 ## Google Calendar setup required
 

@@ -16,7 +16,10 @@ export function calculateCapacity(calendar: CalendarItem[]) {
 }
 
 export function briefFingerprint(date: string, loops: OpenLoop[], calendar: CalendarItem[]) {
-  const loopState = loops.filter(loop => loop.status !== "done").map(loop => [loop.id, loop.title, loop.status, loop.priority, loop.dueDate ?? loop.dueLabel ?? ""].join("|")).sort();
+  const loopState = loops
+    .filter(loop => loop.status !== "done" && (loop.priority === "Now" || loop.priority === "Today" || loop.status === "waiting"))
+    .map(loop => [loop.id, loop.title, loop.status, loop.priority, loop.dueDate ?? loop.dueLabel ?? ""].join("|"))
+    .sort();
   const calendarState = calendar.map(item => [item.id, item.start, item.end, item.title].join("|")).sort();
   return JSON.stringify([date, loopState, calendarState]);
 }

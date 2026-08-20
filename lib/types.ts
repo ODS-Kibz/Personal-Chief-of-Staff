@@ -37,3 +37,11 @@ export type BriefSnapshot = {
   fingerprint: string;
   acknowledgedAt: string;
 };
+
+export type WorkSessionRecord = {
+  id: string;
+  task: string;
+  startedAt: string;
+  finishedAt: string;
+  elapsedMs: number;
+};
